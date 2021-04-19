@@ -21,7 +21,7 @@ class MakeCommand extends FileManipulationCommand
         if ($class) {
             $this->line("<options=bold,reverse;fg=green> RACHE TAG CREATED </> 🤙 \n");
             $this->line("<options=bold;fg=yellow> Make sure to add this tag detail in the rache config. </>");
-            $this->line("<options=bold><fg=cyan> REFERENCE </> $name => <fg=magenta>{$this->getTagNamespace()}{$this->getNameInput()}</></>");
+            $this->line("<options=bold><fg=cyan> REFERENCE </> $name => <fg=magenta>{$this->getTagNamespace()}{$this->getNameInput()}::class</></>");
 
             if ($showWelcomeMessage && !app()->environment('testing')) {
                 $this->writeWelcomeMessage();

@@ -1,5 +1,5 @@
 {
-    "name": "theriddleofenigma/rache",
+    "name": "theriddleofenigma/laravel-rache",
     "description": "A super cool package for caching the laravel response.",
     "license": "MIT",
     "authors": [
