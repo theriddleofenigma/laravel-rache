@@ -11,19 +11,37 @@ use Rache\Tags\RacheTagInterface;
 
 class Rache
 {
+    /**
+     * @var null
+     */
     protected $cacheKey = null;
 
+    /**
+     * @var false[]
+     */
     protected $state = [
         'initialize' => false,
         'cached_response' => false,
     ];
 
+    /**
+     * @var
+     */
     protected $lifetime;
 
+    /**
+     * @var array
+     */
     protected $tags = [];
 
+    /**
+     * @var array
+     */
     protected $cacheTags = [];
 
+    /**
+     * @var array
+     */
     protected $tagSets = [];
 
     /**
@@ -36,7 +54,10 @@ class Rache
      */
     protected $cachedResponse;
 
-    public function __construct()
+    /**
+     * Rache constructor.
+     */
+    protected function __construct()
     {
         $this->tagSets = config('rache.tags');
         $this->setRequest(request());
@@ -45,7 +66,7 @@ class Rache
     /**
      * @throws \Exception
      */
-    public function checkInitialized()
+    protected function checkInitialized()
     {
         if (!$this->state['initialize']) {
             throw new \Exception('Rache instance is not initialized.');
@@ -83,7 +104,7 @@ class Rache
      *
      * @return string
      */
-    public function getCacheKey(): string
+    protected function getCacheKey(): string
     {
         $tagKeys = '';
         foreach ($this->tags as $tag => $data) {
@@ -105,7 +126,7 @@ class Rache
      * @param $tag
      * @throws \Exception
      */
-    public function setLifetimeFromTag($tag)
+    protected function setLifetimeFromTag($tag)
     {
         $value = trim($tag, 'ttl_');
         if (!is_numeric($value)) {
@@ -120,7 +141,7 @@ class Rache
      *
      * @param \Illuminate\Http\Request $request
      */
-    public function setRequest(Request $request)
+    protected function setRequest(Request $request)
     {
         $this->request = $request;
     }
@@ -130,7 +151,7 @@ class Rache
      *
      * @param int $seconds
      */
-    public function setLifetime(int $seconds)
+    protected function setLifetime(int $seconds)
     {
         $this->lifetime = $seconds;
     }
@@ -138,7 +159,7 @@ class Rache
     /**
      * @throws \Exception
      */
-    public function addTag($tag)
+    protected function addTag($tag)
     {
         $this->tags[$tag] = $this->getTagData($tag);
     }
@@ -176,7 +197,7 @@ class Rache
      *
      * @return $this
      */
-    public function serializeTags(): Rache
+    protected function serializeTags(): Rache
     {
         $this->tags = Arr::sortRecursive($this->tags);
         $this->setDefaultCacheTags();
@@ -200,7 +221,7 @@ class Rache
      * @param null $routeName
      * @return string
      */
-    public function getCacheTagForData($tag, $data = null, $routeName = null): string
+    protected function getCacheTagForData($tag, $data = null, $routeName = null): string
     {
         $prefix = $routeName ? ':' : '';
         $suffix = $data ? ':' : '';
@@ -220,7 +241,7 @@ class Rache
      *
      * @return mixed
      */
-    public function getCurrentRouteName()
+    protected function getCurrentRouteName()
     {
         $route = $this->request->route();
         if (is_array($route)) {
@@ -256,6 +277,9 @@ class Rache
     }
 
     /**
+     * Get the cached response.
+     *
+     * @return array|false|mixed
      * @throws \Exception
      */
     public function getCachedResponse()
@@ -276,9 +300,9 @@ class Rache
     /**
      * Get the cache lifetime.
      *
-     * @return \Laravel\Lumen\Application|mixed
+     * @return mixed
      */
-    public function getLifetime()
+    protected function getLifetime()
     {
         return $this->lifetime ?: config('rache.lifetime');
     }
@@ -287,10 +311,10 @@ class Rache
      * Cache the given response.
      *
      * @param \Illuminate\Http\Response $response
-     * @return false
+     * @return bool
      * @throws \Exception
      */
-    public function cacheResponse(Response $response)
+    public function cacheResponse(Response $response): bool
     {
         if ($this->racheEnabled()) {
             return false;
@@ -328,7 +352,7 @@ class Rache
      * @param $tag
      * @throws \Exception
      */
-    public function tagExists($tag): void
+    protected function tagExists($tag): void
     {
         if (!array_key_exists($tag, $this->tagSets)) {
             throw new \Exception("Tag name is not declared in the rache config for $tag");
@@ -340,7 +364,7 @@ class Rache
      *
      * @return \Illuminate\Contracts\Cache\Repository
      */
-    public function cache(): Repository
+    protected function cache(): Repository
     {
         return Cache::store(config('rache.cache_store'));
     }

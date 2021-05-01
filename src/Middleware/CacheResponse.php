@@ -21,7 +21,6 @@ class CacheResponse
      */
     public function handle(Request $request, Closure $next, ...$params)
     {
-        /** @var \Rache\Rache $rache */
         $rache = Rache::initialize($request, $params);
 
         if ($rache->hasCachedResponse()) {
