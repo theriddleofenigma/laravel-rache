@@ -16,15 +16,7 @@ return [
     | to immediately expire on the browser closing, set that option.
     |
     */
-
     'lifetime' => env('RACHE_LIFETIME', 60 * 60),
-
-    /*
-     * This setting determines if a http header named with the cache time
-     * should be added to a cached response. This can be handy when
-     * debugging.
-     */
-    'add_cache_time_header' => env('APP_DEBUG', true),
 
     /*
     |--------------------------------------------------------------------------

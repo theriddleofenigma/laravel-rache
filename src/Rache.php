@@ -2,6 +2,7 @@
 
 namespace Rache;
 
+use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Arr;
@@ -266,7 +267,7 @@ class Rache
         $this->checkInitialized();
         if (!$this->state['cached_response']) {
             $this->state['cached_response'] = true;
-            $this->cachedResponse = Cache::tags($this->cacheTags)->get($this->cacheKey);
+            $this->cachedResponse = $this->cache()->tags($this->cacheTags)->get($this->cacheKey);
         }
 
         return $this->cachedResponse;
@@ -296,7 +297,7 @@ class Rache
         }
 
         $this->checkInitialized();
-        Cache::tags($this->cacheTags)->put($this->cacheKey, $response, $this->getLifetime());
+        $this->cache()->tags($this->cacheTags)->put($this->cacheKey, $response, $this->getLifetime());
         return true;
     }
 
@@ -320,7 +321,7 @@ class Rache
             $tag = $this->getCacheTagForData($tag, null, $options['route']);
         }
 
-        Cache::tags($tag)->flush();
+        $this->cache()->tags($tag)->flush();
     }
 
     /**
@@ -332,5 +333,15 @@ class Rache
         if (!array_key_exists($tag, $this->tagSets)) {
             throw new \Exception("Tag name is not declared in the rache config for $tag");
         }
+    }
+
+    /**
+     * Get the cache for the configured store.
+     *
+     * @return \Illuminate\Contracts\Cache\Repository
+     */
+    public function cache(): Repository
+    {
+        return Cache::store(config('rache.cache_store'));
     }
 }
