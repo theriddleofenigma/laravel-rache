@@ -1,6 +1,6 @@
 {
     "name": "theriddleofenigma/laravel-rache",
-    "description": "A super cool package for caching the laravel response.",
+    "description": "A super cool package for caching the laravel response dynamically.",
     "license": "MIT",
     "authors": [
         {
@@ -19,5 +19,17 @@
         "psr-4": {
             "Rache\\": "src/"
         }
-    }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Rache\\RacheServiceProvider"
+            ],
+            "aliases": {
+                "Rache": "Rache\\Facades\\Rache"
+            }
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
 }

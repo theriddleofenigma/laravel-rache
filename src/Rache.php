@@ -2,26 +2,46 @@
 
 namespace Rache;
 
+use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
+use Rache\Tags\RacheTagInterface;
 
 class Rache
 {
+    /**
+     * @var null
+     */
     protected $cacheKey = null;
 
+    /**
+     * @var false[]
+     */
     protected $state = [
         'initialize' => false,
         'cached_response' => false,
     ];
 
+    /**
+     * @var
+     */
     protected $lifetime;
 
+    /**
+     * @var array
+     */
     protected $tags = [];
 
+    /**
+     * @var array
+     */
     protected $cacheTags = [];
 
+    /**
+     * @var array
+     */
     protected $tagSets = [];
 
     /**
@@ -34,12 +54,19 @@ class Rache
      */
     protected $cachedResponse;
 
-    public function __construct()
+    /**
+     * Rache constructor.
+     */
+    protected function __construct()
     {
         $this->tagSets = config('rache.tags');
+        $this->setRequest(request());
     }
 
-    public function checkInitialized()
+    /**
+     * @throws \Exception
+     */
+    protected function checkInitialized()
     {
         if (!$this->state['initialize']) {
             throw new \Exception('Rache instance is not initialized.');
@@ -77,7 +104,7 @@ class Rache
      *
      * @return string
      */
-    public function getCacheKey(): string
+    protected function getCacheKey(): string
     {
         $tagKeys = '';
         foreach ($this->tags as $tag => $data) {
@@ -99,7 +126,7 @@ class Rache
      * @param $tag
      * @throws \Exception
      */
-    public function setLifetimeFromTag($tag)
+    protected function setLifetimeFromTag($tag)
     {
         $value = trim($tag, 'ttl_');
         if (!is_numeric($value)) {
@@ -114,7 +141,7 @@ class Rache
      *
      * @param \Illuminate\Http\Request $request
      */
-    public function setRequest(Request $request)
+    protected function setRequest(Request $request)
     {
         $this->request = $request;
     }
@@ -124,7 +151,7 @@ class Rache
      *
      * @param int $seconds
      */
-    public function setLifetime(int $seconds)
+    protected function setLifetime(int $seconds)
     {
         $this->lifetime = $seconds;
     }
@@ -132,19 +159,37 @@ class Rache
     /**
      * @throws \Exception
      */
-    public function addTag($tag, $resolve = true)
+    protected function addTag($tag)
     {
-        $this->tags[$tag] = $resolve ? $this->resolveTag($tag) : null;
+        $this->tags[$tag] = $this->getTagData($tag);
     }
 
     /**
+     * Get the tag data.
+     *
      * @throws \Exception
      */
-    public function resolveTag($tag)
+    public function getTagData($tag): array
+    {
+        return $this->getTagInstance($tag)->getTagDetails();
+    }
+
+    /**
+     * Get the tag instance.
+     *
+     * @param $tag
+     * @return \Rache\Tags\RacheTagInterface
+     * @throws \Exception
+     */
+    protected function getTagInstance($tag): RacheTagInterface
     {
         $this->tagExists($tag);
 
-        return (new $this->tagSets[$tag]($this->request))->getTagDetails();
+        $tagInstance = new $this->tagSets[$tag]($this->request);
+        if (!$tagInstance instanceof RacheTagInterface) {
+            throw new \Exception("All the tags should implement the RacheTagInterface. Check the $tag Tag class whether it implements RacheTagInterface.");
+        }
+        return $tagInstance;
     }
 
     /**
@@ -152,7 +197,7 @@ class Rache
      *
      * @return $this
      */
-    public function serializeTags(): Rache
+    protected function serializeTags(): Rache
     {
         $this->tags = Arr::sortRecursive($this->tags);
         $this->setDefaultCacheTags();
@@ -176,27 +221,43 @@ class Rache
      * @param null $routeName
      * @return string
      */
-    public function getCacheTagForData($tag, $data = null, $routeName = null): string
+    protected function getCacheTagForData($tag, $data = null, $routeName = null): string
     {
         $prefix = $routeName ? ':' : '';
         $suffix = $data ? ':' : '';
         return "$routeName{$prefix}$tag{$suffix}$data";
     }
 
+    /**
+     * Set the default cache tags.
+     */
     protected function setDefaultCacheTags()
     {
         $this->cacheTags[] = $this->getCurrentRouteName();
     }
 
-    public function getCurrentRouteName()
+    /**
+     * Get the current route name.
+     *
+     * @return mixed
+     */
+    protected function getCurrentRouteName()
     {
-        return $this->request->route()[1]['as'];
+        $route = $this->request->route();
+        if (is_array($route)) {
+            return $route[1]['as'];
+        }
+
+        return $this->request->route()->getAction('as');
     }
 
     /**
+     * Check whether the cached response exists.
+     *
+     * @return bool
      * @throws \Exception
      */
-    public function hasCachedResponse()
+    public function hasCachedResponse(): bool
     {
         if ($this->racheEnabled()) {
             return false;
@@ -206,6 +267,8 @@ class Rache
     }
 
     /**
+     * Check whether the rache is enabled in the config.
+     *
      * @return mixed
      */
     public function racheEnabled()
@@ -214,6 +277,9 @@ class Rache
     }
 
     /**
+     * Get the cached response.
+     *
+     * @return array|false|mixed
      * @throws \Exception
      */
     public function getCachedResponse()
@@ -225,7 +291,7 @@ class Rache
         $this->checkInitialized();
         if (!$this->state['cached_response']) {
             $this->state['cached_response'] = true;
-            $this->cachedResponse = Cache::tags($this->cacheTags)->get($this->cacheKey);
+            $this->cachedResponse = $this->cache()->tags($this->cacheTags)->get($this->cacheKey);
         }
 
         return $this->cachedResponse;
@@ -234,9 +300,9 @@ class Rache
     /**
      * Get the cache lifetime.
      *
-     * @return \Laravel\Lumen\Application|mixed
+     * @return mixed
      */
-    public function getLifetime()
+    protected function getLifetime()
     {
         return $this->lifetime ?: config('rache.lifetime');
     }
@@ -245,67 +311,61 @@ class Rache
      * Cache the given response.
      *
      * @param \Illuminate\Http\Response $response
-     * @return false
+     * @return bool
      * @throws \Exception
      */
-    public function cacheResponse(Response $response)
+    public function cacheResponse(Response $response): bool
     {
         if ($this->racheEnabled()) {
             return false;
         }
 
         $this->checkInitialized();
-        Cache::tags($this->cacheTags)->put($this->cacheKey, $response, $this->getLifetime());
+        $this->cache()->tags($this->cacheTags)->put($this->cacheKey, $response, $this->getLifetime());
         return true;
     }
 
     /**
+     * Flush the given tag for the given route and data.
+     *
      * @throws \Exception
      */
-    public function flushTags($tags)
+    public function flushTag($tag, $options = [])
     {
-        $tags = is_array($tags) ? $tags : func_get_args();
-        $flushTags = [];
-        $routeName = $this->getCurrentRouteName();
-        foreach ($tags as $tag) {
-            $tagSlug = explode(':', $tag);
-            $data = in_array('data', $tagSlug);
-            $route = in_array('route', $tagSlug);
-            if ($data && $route) {
-                $tag = $tagSlug[0];
-                $serializedData = serialize(Arr::sortRecursive($this->resolveTag($tag)));
-                $flushTags[] = $this->getCacheTagForData($tag, $serializedData, $routeName);
-                continue;
-            }
-
-            if ($data) {
-                $tag = $tagSlug[0];
-                $serializedData = serialize(Arr::sortRecursive($this->resolveTag($tag)));
-                $flushTags[] = $this->getCacheTagForData($tag, $serializedData);
-                continue;
-            }
-
-            if ($route) {
-                $tag = $tagSlug[0];
-                $this->tagExists($tag);
-                $flushTags[] = $this->getCacheTagForData($tag, null, $routeName);
-                continue;
-            }
-
-            $flushTags[] = $tag;
+        $this->tagExists($tag);
+        $data = isset($options['data']);
+        $route = isset($options['route']);
+        if ($data && $route) {
+            $serializedData = serialize(Arr::sortRecursive($options['data']));
+            $tag = $this->getCacheTagForData($tag, $serializedData, $options['route']);
+        } elseif ($data) {
+            $serializedData = serialize(Arr::sortRecursive($options['data']));
+            $tag = $this->getCacheTagForData($tag, $serializedData);
+        } elseif ($route) {
+            $tag = $this->getCacheTagForData($tag, null, $options['route']);
         }
 
-        Cache::tags($flushTags)->flush();
+        $this->cache()->tags($tag)->flush();
     }
 
     /**
      * @param $tag
      * @throws \Exception
      */
-    public function tagExists($tag): void
+    protected function tagExists($tag): void
     {
         if (!array_key_exists($tag, $this->tagSets)) {
             throw new \Exception("Tag name is not declared in the rache config for $tag");
         }
+    }
+
+    /**
+     * Get the cache for the configured store.
+     *
+     * @return \Illuminate\Contracts\Cache\Repository
+     */
+    protected function cache(): Repository
+    {
+        return Cache::store(config('rache.cache_store'));
     }
 }
