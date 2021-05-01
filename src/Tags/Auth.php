@@ -23,7 +23,8 @@ class Auth implements RacheTagInterface
      */
     public function getTagDetails(): array
     {
-        $user = $this->request->user();
-        return ['id' => $user->id ?? null];
+        return [
+            'id' => $this->request->user()->id ?? null,
+        ];
     }
 }

@@ -51,6 +51,7 @@ return [
      */
     'tags' => [
         'auth' => \Rache\Tags\Auth::class,
+        'page' => \Rache\Tags\Pagination::class,
         'request' => \Rache\Tags\Request::class,
     ],
 ];

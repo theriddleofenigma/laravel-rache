@@ -24,13 +24,9 @@ class CacheResponse
         /** @var \Rache\Rache $rache */
         $rache = Rache::initialize($request, $params);
 
-//        $rache->flushTags(['company:route:data'], 'leaves.list');
         if ($rache->hasCachedResponse()) {
-            var_dump('Cache Helo');
             return $rache->getCachedResponse();
         }
-
-        var_dump('Helo');
 
         $response = $next($request);
 

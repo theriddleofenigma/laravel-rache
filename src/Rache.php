@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
+use Rache\Tags\RacheTagInterface;
 
 class Rache
 {
@@ -37,8 +38,12 @@ class Rache
     public function __construct()
     {
         $this->tagSets = config('rache.tags');
+        $this->setRequest(request());
     }
 
+    /**
+     * @throws \Exception
+     */
     public function checkInitialized()
     {
         if (!$this->state['initialize']) {
@@ -132,19 +137,37 @@ class Rache
     /**
      * @throws \Exception
      */
-    public function addTag($tag, $resolve = true)
+    public function addTag($tag)
     {
-        $this->tags[$tag] = $resolve ? $this->resolveTag($tag) : null;
+        $this->tags[$tag] = $this->getTagData($tag);
     }
 
     /**
+     * Get the tag data.
+     *
      * @throws \Exception
      */
-    public function resolveTag($tag)
+    public function getTagData($tag): array
+    {
+        return $this->getTagInstance($tag)->getTagDetails();
+    }
+
+    /**
+     * Get the tag instance.
+     *
+     * @param $tag
+     * @return \Rache\Tags\RacheTagInterface
+     * @throws \Exception
+     */
+    protected function getTagInstance($tag): RacheTagInterface
     {
         $this->tagExists($tag);
 
-        return (new $this->tagSets[$tag]($this->request))->getTagDetails();
+        $tagInstance = new $this->tagSets[$tag]($this->request);
+        if (!$tagInstance instanceof RacheTagInterface) {
+            throw new \Exception("All the tags should implement the RacheTagInterface. Check the $tag Tag class whether it implements RacheTagInterface.");
+        }
+        return $tagInstance;
     }
 
     /**
@@ -183,20 +206,36 @@ class Rache
         return "$routeName{$prefix}$tag{$suffix}$data";
     }
 
+    /**
+     * Set the default cache tags.
+     */
     protected function setDefaultCacheTags()
     {
         $this->cacheTags[] = $this->getCurrentRouteName();
     }
 
+    /**
+     * Get the current route name.
+     *
+     * @return mixed
+     */
     public function getCurrentRouteName()
     {
-        return $this->request->route()[1]['as'];
+        $route = $this->request->route();
+        if (is_array($route)) {
+            return $route[1]['as'];
+        }
+
+        return $this->request->route()->getAction('as');
     }
 
     /**
+     * Check whether the cached response exists.
+     *
+     * @return bool
      * @throws \Exception
      */
-    public function hasCachedResponse()
+    public function hasCachedResponse(): bool
     {
         if ($this->racheEnabled()) {
             return false;
@@ -206,6 +245,8 @@ class Rache
     }
 
     /**
+     * Check whether the rache is enabled in the config.
+     *
      * @return mixed
      */
     public function racheEnabled()
@@ -260,42 +301,26 @@ class Rache
     }
 
     /**
+     * Flush the given tag for the given route and data.
+     *
      * @throws \Exception
      */
-    public function flushTags($tags)
+    public function flushTag($tag, $options = [])
     {
-        $tags = is_array($tags) ? $tags : func_get_args();
-        $flushTags = [];
-        $routeName = $this->getCurrentRouteName();
-        foreach ($tags as $tag) {
-            $tagSlug = explode(':', $tag);
-            $data = in_array('data', $tagSlug);
-            $route = in_array('route', $tagSlug);
-            if ($data && $route) {
-                $tag = $tagSlug[0];
-                $serializedData = serialize(Arr::sortRecursive($this->resolveTag($tag)));
-                $flushTags[] = $this->getCacheTagForData($tag, $serializedData, $routeName);
-                continue;
-            }
-
-            if ($data) {
-                $tag = $tagSlug[0];
-                $serializedData = serialize(Arr::sortRecursive($this->resolveTag($tag)));
-                $flushTags[] = $this->getCacheTagForData($tag, $serializedData);
-                continue;
-            }
-
-            if ($route) {
-                $tag = $tagSlug[0];
-                $this->tagExists($tag);
-                $flushTags[] = $this->getCacheTagForData($tag, null, $routeName);
-                continue;
-            }
-
-            $flushTags[] = $tag;
+        $this->tagExists($tag);
+        $data = isset($options['data']);
+        $route = isset($options['route']);
+        if ($data && $route) {
+            $serializedData = serialize(Arr::sortRecursive($options['data']));
+            $tag = $this->getCacheTagForData($tag, $serializedData, $options['route']);
+        } elseif ($data) {
+            $serializedData = serialize(Arr::sortRecursive($options['data']));
+            $tag = $this->getCacheTagForData($tag, $serializedData);
+        } elseif ($route) {
+            $tag = $this->getCacheTagForData($tag, null, $options['route']);
         }
 
-        Cache::tags($flushTags)->flush();
+        Cache::tags($tag)->flush();
     }
 
     /**
