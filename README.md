@@ -47,6 +47,19 @@ You can either declare the default middleware, or you extend it by creating your
 'rache' => \Rache\Middleware\CacheResponse::class,
 ```
 
+### Setting the Driver
+
+Make sure to set the rache driver in the <b>.env</b> file with the corresponding driver name which you want to use.
+
+```
+RACHE_DRIVER=redis // It uses laravel cache system behind the scenes.
+```
+
+#### Note
+
+Since rache uses Laravel Cache Tags behind the scenes it contains the same limitations as Laravel Cache tags. Cache tags
+aren't supported when using the `file`, `dynamodb`, or `database` cache drivers.
+
 ### Rache Tags
 
 Rache tags acts as label for settings up the cache against some data. `Auth`, `Request`, and `Pagination` tags are added
@@ -136,6 +149,14 @@ Route::get('/posts', 'PostController@index')
     ->name('posts.index');
 ```
 
+### Flush all the cached responses
+
+By calling the flushAll, you can clear all the cached response in the application.
+
+```injectablephp
+Rache::flushAll();
+```
+
 ### Flush the tags with route and data
 
 You can flush the cache by using `Rache::flushTag({tag-name}, {options:[route, data]})`. We can find some real-time
@@ -186,6 +207,7 @@ auth tag <b>for userId 2</b> will get cleared without touching the cache of othe
 You can flush any type of tag along with route name or data based on your need. Ex: On creating new record or delete
 event or on custom event or an API trigger. You can use it anywhere, whenever a tag has been flushed it will clear all
 the corresponding cache.
+
 
 ## Credits
 
