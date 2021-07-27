@@ -57,7 +57,7 @@ class Rache
     /**
      * Rache constructor.
      */
-    protected function __construct()
+    public function __construct()
     {
         $this->tagSets = config('rache.tags');
         $this->setRequest(request());
@@ -204,6 +204,7 @@ class Rache
         $routeName = $this->getCurrentRouteName();
         foreach ($this->tags as $tag => $data) {
             $this->tags[$tag] = serialize($data);
+            $this->cacheTags[] = 'rache';
             $this->cacheTags[] = $tag;
             $this->cacheTags[] = $this->getCacheTagForData($tag, $this->tags[$tag]);
             $this->cacheTags[] = $this->getCacheTagForData($tag, null, $routeName);
@@ -259,7 +260,7 @@ class Rache
      */
     public function hasCachedResponse(): bool
     {
-        if ($this->racheEnabled()) {
+        if (!$this->racheEnabled()) {
             return false;
         }
 
@@ -284,7 +285,7 @@ class Rache
      */
     public function getCachedResponse()
     {
-        if ($this->racheEnabled()) {
+        if (!$this->racheEnabled()) {
             return false;
         }
 
@@ -316,7 +317,7 @@ class Rache
      */
     public function cacheResponse(Response $response): bool
     {
-        if ($this->racheEnabled()) {
+        if (!$this->racheEnabled()) {
             return false;
         }
 
@@ -346,6 +347,14 @@ class Rache
         }
 
         $this->cache()->tags($tag)->flush();
+    }
+
+    /**
+     * Flush all the tag.
+     */
+    public function flushAll()
+    {
+        $this->cache()->tags('rache')->flush();
     }
 
     /**
