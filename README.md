@@ -1,5 +1,7 @@
 <p align="center"><code>&hearts; Made with &lt;love/&gt; And I love &lt;code/&gt;</code></p>
 
+[![Total Downloads](https://img.shields.io/packagist/dt/theriddleofenigma/laravel-rache.svg?style=flat-square)](https://packagist.org/packages/theriddleofenigma/laravel-rache)
+
 # Laravel Rache
 
 A super cool package for caching the laravel response dynamically.
