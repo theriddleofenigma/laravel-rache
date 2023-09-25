@@ -20,7 +20,7 @@ composer require theriddleofenigma/laravel-rache
 
 Add the service provider and alias in the <b>bootstrap/app.php</b>.
 
-```injectablephp
+```php
 // Service provider
 $app->register(\Rache\RacheServiceProvider::class);
 
@@ -45,7 +45,7 @@ php artisan rache:publish
 
 You can either declare the default middleware, or you extend it by creating your own middleware for customisation.
 
-```injectablephp
+```php
 'rache' => \Rache\Middleware\CacheResponse::class,
 ```
 
@@ -53,7 +53,7 @@ You can either declare the default middleware, or you extend it by creating your
 
 Make sure to set the rache driver in the <b>.env</b> file with the corresponding driver name which you want to use.
 
-```
+```env
 RACHE_DRIVER=redis // It uses laravel cache system behind the scenes.
 ```
 
@@ -89,7 +89,7 @@ Run `php artisan make:rache-tag Search` in the project base directory.
 
 Then add the unique constraints for the search tag under `getTagDetails()`,
 
-```injectablephp
+```php
 /**
  * Get the tag details of this rache tag.
  *
@@ -105,7 +105,7 @@ public function getTagDetails(): array
 
 After that you should define the newly created tag in the rache.php config file as follows,
 
-```injectablephp
+```php
 /*
  * You may declare the tags here. All responses will be tagged.
  * These tags are very used while forgetting the response cache.
@@ -137,7 +137,7 @@ configured in the rache.php config file. You can pass the ttl in any position al
 3. You can use the middleware without tags like `->middleware('rache')`. It will cache the response without considering
    any tag data. It will be useful if a route response won't vary for anyone.
 
-```
+```php
 // Both acts as same.
 rache:ttl_10,auth,page,search
 rache:auth,ttl_10,search,page
@@ -145,7 +145,7 @@ rache:auth,ttl_10,search,page
 
 #### Example usage
 
-```injectablephp
+```php
 Route::get('/posts', 'PostController@index')
     ->middleware('rache:ttl_10,auth,page,search')
     ->name('posts.index');
@@ -155,7 +155,7 @@ Route::get('/posts', 'PostController@index')
 
 By calling the flushAll, you can clear all the cached response in the application.
 
-```injectablephp
+```php
 Rache::flushAll();
 ```
 
@@ -168,7 +168,7 @@ examples for flushing the tags.
 
 Let's say you want to clear all the cache based on the auth tag,
 
-```injectablephp
+```php
 Rache::flushTag('auth', [
     'route' => 'posts.index',
 ]);
@@ -180,7 +180,7 @@ If the route name is not mentioned, then the cache for all the routes having the
 
 If you want to clear for the current authenticated user then,
 
-```injectablephp
+```php
 Rache::flushTag('auth', [
     'route' => 'posts.index',
     'data' => Rache::getTagData('auth'),
@@ -193,7 +193,7 @@ The `Rache::getTagData()` will render the data as same as it's get rendered for 
 
 In case you want to clear the data for other users,
 
-```injectablephp
+```php
 $userId = 2;
 Rache::flushTag('auth', [
     'route' => 'posts.index',
