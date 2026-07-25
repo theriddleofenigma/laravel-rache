@@ -16,11 +16,17 @@ production installs.
 ### Breaking
 
 - **Raised the runtime floor to PHP 8.2** (from `^7.3|^8.0`) and the framework
-  floor to **Laravel 11**, adding support for **Laravel 12 and 13**. Laravel 7
-  and 8 are long past end of life and have been dropped.
+  floor to **Laravel 12**, adding support for **Laravel 13**. Laravel 7 and 8
+  are long past end of life and have been dropped.
   Note that 1.x already required PHP 8 in practice: `CacheResponse` called
   `str_starts_with()`, so on PHP 7.3/7.4 every cacheable request died with
   `Call to undefined function str_starts_with()`.
+- **Laravel 11 is not supported.** It was in the matrix during development and
+  removed once CI proved it unusable: the final 11.x release (11.55.0) is
+  covered by three unpatched security advisories
+  (`PKSA-m5cs-t1y6-qpcs`, `PKSA-3r5d-mb8f-1qw9`, `PKSA-mdq4-51ck-6kdq`, all
+  spanning `v11.50.0 … v11.55.0`), so Composer's advisory policy refuses to
+  install any 11.x release at all. Laravel 12 and 13 are advisory-clean.
 - **Every rache'd route must be named.** An unnamed route used to push `null`
   into the cache tag list, so all unnamed rache'd routes shared a single tag
   namespace and flushing one flushed them all. It now throws
@@ -129,8 +135,10 @@ production installs.
   application registered itself is never overwritten.
 - A test suite: 100 tests covering the happy path, config permutations, edge
   cases and error handling. It needs no database, cache server or credentials.
-- CI across PHP 8.2–8.4 × Laravel 11–13, with `prefer-lowest` legs proving the
-  declared floors install, plus a lint job.
+- CI across PHP 8.2–8.4 × Laravel 12–13, with `prefer-lowest` legs proving the
+  declared floors install, plus a lint job. The `prefer-stable` legs keep
+  Composer's advisory gate enabled, so CI fails if a supported Laravel major
+  stops receiving security patches — which is how Laravel 11 was caught.
 - `.gitattributes` so tests, CI config and tooling are not shipped to consumers.
 - Community health files: contributing guide, security policy, support doc,
   code of conduct, issue templates, PR template, code owners, Dependabot config

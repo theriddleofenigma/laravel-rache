@@ -18,8 +18,11 @@ are equivalent, and any tag can be used later as the handle to flush the cache.
 
 | Package | PHP        | Laravel / Lumen         |
 | ------- | ---------- | ----------------------- |
-| 2.x     | 8.2 – 8.4  | 11.x, 12.x, 13.x        |
+| 2.x     | 8.2 – 8.4  | 12.x, 13.x              |
 | 1.x     | 7.3 – 8.x  | 7.x, 8.x (unmaintained) |
+
+Laravel 11 is **not** supported. Its final release (11.55.0) carries unpatched
+security advisories, so Composer's advisory policy refuses to install it.
 
 Rache uses Laravel cache tags, so the cache store must support tagging. The
 `file`, `database` and `dynamodb` drivers **cannot** be used — pick `redis`,
@@ -252,7 +255,7 @@ Redirects are cached as a flattened plain response, keeping their status and
 
 ## Upgrading from 1.x
 
-2.0 raises the floor to PHP 8.2 and Laravel 11, and fixes several bugs that
+2.0 raises the floor to PHP 8.2 and Laravel 12, and fixes several bugs that
 changed observable behaviour. See [CHANGELOG.md](CHANGELOG.md) for the full list.
 The short version:
 

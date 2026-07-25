@@ -12,6 +12,14 @@ which are past end of life, and it contains a cache isolation bug that can serve
 one authenticated user's response to another (see the 2.0.0 changelog). Please
 upgrade.
 
+### Supported Laravel versions
+
+2.x targets Laravel 12 and 13. **Laravel 11 is deliberately excluded**: its
+final release (11.55.0) is covered by three unpatched security advisories, so
+supporting it would mean pointing users at a framework with known unfixed
+vulnerabilities. CI keeps Composer's advisory gate enabled on the stable legs so
+that a supported major going unpatched fails the build.
+
 ## Reporting a vulnerability
 
 **Do not open a public issue for a security problem.**
