@@ -1,29 +1,25 @@
 <?php
 
-namespace App\Rache\Tags;
+declare(strict_types=1);
 
-use Illuminate\Http\Request;
-use Rache\Tags\RacheTagInterface;
+namespace {{ namespace }};
 
-class {{ class }} implements RacheTagInterface
+use Rache\Tags\Tag;
+
+class {{ class }} extends Tag
 {
-    /**
-     * @var Request
-     */
-    protected $request;
-
-    public function __construct(Request $request)
-    {
-        $this->request = $request;
-    }
-
     /**
      * Get the tag details of this rache tag.
      *
-     * @return array
+     * Return the values that make a cached response for this tag unique. Two
+     * requests share a cached response only when this array matches.
+     *
+     * @return array<array-key, mixed>
      */
     public function getTagDetails(): array
     {
-        return [];
+        return [
+            //
+        ];
     }
 }

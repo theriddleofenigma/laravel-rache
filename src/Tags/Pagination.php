@@ -1,35 +1,28 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Rache\Tags;
 
-use Illuminate\Http\Request as LaravelRequest;
-
-class Pagination implements RacheTagInterface
+/**
+ * Scopes a cached response to the requested page.
+ */
+class Pagination extends Tag
 {
-    /**
-     * @var LaravelRequest
-     */
-    protected $request;
-
-    /**
-     * Request constructor.
-     *
-     * @param \Illuminate\Http\Request $request
-     */
-    public function __construct(LaravelRequest $request)
-    {
-        $this->request = $request;
-    }
-
     /**
      * Get the tag details of this rache tag.
      *
-     * @return array
+     * @return array{page: string|null}
      */
     public function getTagDetails(): array
     {
+        $page = $this->request->input('page');
+
         return [
-            'page' => $this->request->input('page'),
+            // Cast to string so that `?page=2` and `?page[]=2`-style input, or a
+            // JSON body carrying an integer, all collapse to the same tag data
+            // and therefore to the same cache entry.
+            'page' => is_scalar($page) ? (string) $page : null,
         ];
     }
 }

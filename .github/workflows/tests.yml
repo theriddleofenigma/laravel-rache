@@ -1,0 +1,112 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }} / ${{ matrix.dependency-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4']
+        laravel: ['12.*', '13.*']
+        dependency-version: [prefer-stable]
+        include:
+          - laravel: '12.*'
+            testbench: '10.*'
+          - laravel: '13.*'
+            testbench: '11.*'
+          # Prove the declared floors are actually installable.
+          - php: '8.2'
+            laravel: '12.*'
+            testbench: '10.*'
+            dependency-version: prefer-lowest
+          - php: '8.3'
+            laravel: '13.*'
+            testbench: '11.*'
+            dependency-version: prefer-lowest
+        exclude:
+          # Laravel 13 requires PHP ^8.3.
+          - php: '8.2'
+            laravel: '13.*'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, curl, libxml, mbstring, zip
+          coverage: none
+
+      # Composer refuses to load any release covered by a security advisory.
+      # A prefer-lowest leg exists to install the oldest release the constraints
+      # allow, and superseded patch releases are advisory-covered almost by
+      # definition, so the gate makes the leg unresolvable. This is a CI-only
+      # accommodation for throwaway containers.
+      #
+      # The prefer-stable legs deliberately keep the gate ON. That is what tells
+      # us a supported Laravel major has stopped receiving security patches --
+      # it is exactly how Laravel 11 was caught and dropped from this matrix.
+      - name: Allow superseded patch releases (prefer-lowest only)
+        if: matrix.dependency-version == 'prefer-lowest'
+        # Written straight into composer.json rather than via `composer config`,
+        # because the config.policy.* namespace only exists on newer Composer
+        # releases and `composer config` rejects keys it does not know.
+        run: |
+          php -r '
+            $f = "composer.json";
+            $j = json_decode(file_get_contents($f), true);
+            $j["config"]["policy"]["advisories"]["block"] = false;
+            file_put_contents($f, json_encode($j, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+          '
+
+      - name: Install dependencies
+        run: |
+          composer require --dev --no-interaction --no-update \
+            "orchestra/testbench:${{ matrix.testbench }}"
+          composer update --${{ matrix.dependency-version }} \
+            --prefer-dist --no-interaction --no-progress
+
+      - name: Report installed versions
+        run: composer show --locked | grep -E '^(laravel/framework|orchestra/testbench|phpunit/phpunit) ' || true
+
+      - name: Run tests
+        run: vendor/bin/phpunit
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Install dependencies
+        run: composer update --prefer-dist --no-interaction --no-progress
+
+      - name: Check code style
+        run: vendor/bin/pint --test
+
+      - name: Validate composer.json
+        run: composer validate --strict

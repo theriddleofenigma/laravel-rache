@@ -1,0 +1,35 @@
+name: ❓ Question
+description: Ask how to do something with the package.
+labels: ['question']
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please skim [SUPPORT.md](https://github.com/theriddleofenigma/laravel-rache/blob/main/SUPPORT.md)
+        first — it covers the most common causes of "nothing is being cached".
+
+        ⚠️ **Never paste credentials here.** Redact `.env` contents, cache DSNs,
+        tokens, cookies and real user identifiers before you submit.
+
+  - type: checkboxes
+    id: no-credentials
+    attributes:
+      label: Credentials
+      options:
+        - label: I have removed all credentials, tokens, cookies and personal data from this question.
+          required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Relevant route and config
+      description: Redact anything sensitive.
+      render: php

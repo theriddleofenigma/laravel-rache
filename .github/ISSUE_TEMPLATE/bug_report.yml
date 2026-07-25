@@ -1,0 +1,106 @@
+name: 🐛 Bug report
+description: Something in the package behaves incorrectly.
+labels: ['bug']
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report.
+
+        ⚠️ **Never paste credentials here.** This issue is public and indexed.
+        Redact `.env` contents, `APP_KEY`, Redis/Memcached DSNs and passwords,
+        `Set-Cookie` / `Authorization` / `Cookie` headers, API tokens, session
+        IDs and real user identifiers before you submit. If you post a secret by
+        accident, rotate it — deleting the comment is not enough.
+
+  - type: checkboxes
+    id: no-credentials
+    attributes:
+      label: Credentials
+      options:
+        - label: I have removed all credentials, tokens, cookies and personal data from this report.
+          required: true
+
+  - type: input
+    id: package-version
+    attributes:
+      label: Package version
+      placeholder: 2.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: laravel-version
+    attributes:
+      label: Laravel (or Lumen) version
+      placeholder: 12.64.0
+    validations:
+      required: true
+
+  - type: input
+    id: php-version
+    attributes:
+      label: PHP version
+      placeholder: '8.3'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: cache-driver
+    attributes:
+      label: Cache driver
+      description: Rache requires a taggable store. `file`, `database` and `dynamodb` cannot be used.
+      options:
+        - redis
+        - memcached
+        - array
+        - other (please describe below)
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: route
+    attributes:
+      label: Route definition
+      description: Include the full middleware string and the route name.
+      render: php
+      placeholder: |
+        Route::get('/posts', [PostController::class, 'index'])
+            ->middleware('rache:ttl_60,auth,page')
+            ->name('posts.index');
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant config/rache.php entries
+      description: Redact anything sensitive.
+      render: php
+
+  - type: textarea
+    id: exception
+    attributes:
+      label: Exception and stack trace
+      description: The full message and trace, if there was one. Redact paths that leak hostnames or user data.
+      render: text
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Register the route above
+        2. Request /posts twice
+        3. …
+    validations:
+      required: true

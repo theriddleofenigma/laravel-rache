@@ -1,30 +1,18 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Rache\Tags;
 
-use Illuminate\Http\Request as LaravelRequest;
-
-class Request implements RacheTagInterface
+/**
+ * Scopes a cached response to the full input of the request.
+ */
+class Request extends Tag
 {
-    /**
-     * @var LaravelRequest
-     */
-    protected $request;
-
-    /**
-     * Request constructor.
-     *
-     * @param \Illuminate\Http\Request $request
-     */
-    public function __construct(LaravelRequest $request)
-    {
-        $this->request = $request;
-    }
-
     /**
      * Get the tag details of this rache tag.
      *
-     * @return array
+     * @return array<array-key, mixed>
      */
     public function getTagDetails(): array
     {

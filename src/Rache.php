@@ -1,380 +1,504 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Rache;
 
-use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
+use Illuminate\Http\Response as HttpResponse;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\Cache;
+use Rache\Cache\CacheKeyGenerator;
+use Rache\Cache\CacheTagSet;
+use Rache\Cache\ResponseStore;
+use Rache\Config\RacheConfig;
+use Rache\Exceptions\InvalidTtlException;
+use Rache\Exceptions\NotInitializedException;
+use Rache\Routing\RouteNameResolver;
 use Rache\Tags\RacheTagInterface;
+use Rache\Tags\TagRegistry;
+use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Response;
 
+/**
+ * The public entry point of the package, bound in the container as `rache`.
+ *
+ * This class owns the per-request state (which tags apply, what the cache key
+ * is, what lifetime was requested) and delegates the actual work to the focused
+ * collaborators it is constructed with.
+ */
 class Rache
 {
     /**
-     * @var null
+     * The middleware parameter prefix that carries a custom lifetime.
      */
-    protected $cacheKey = null;
+    public const TTL_PREFIX = 'ttl_';
 
     /**
-     * @var false[]
+     * Whether `initialize()` has completed for the current request.
      */
-    protected $state = [
-        'initialize' => false,
-        'cached_response' => false,
-    ];
+    protected bool $initialized = false;
 
     /**
-     * @var
+     * The request the current state was built for.
      */
-    protected $lifetime;
+    protected ?Request $request = null;
 
     /**
-     * @var array
+     * The normalised middleware parameters the current state was built for.
+     *
+     * @var list<string>
      */
-    protected $tags = [];
+    protected array $parameters = [];
 
     /**
-     * @var array
+     * The resolved tag data, keyed by tag name.
+     *
+     * @var array<string, array<array-key, mixed>>
      */
-    protected $cacheTags = [];
+    protected array $tags = [];
 
     /**
-     * @var array
+     * The serialized tag data, keyed by tag name.
+     *
+     * @var array<string, string>
      */
-    protected $tagSets = [];
+    protected array $serializedTags = [];
 
     /**
-     * @var \Illuminate\Http\Request
+     * The cache tags the current response is stored against.
+     *
+     * @var list<string>
      */
-    private $request;
+    protected array $cacheTags = [];
 
     /**
-     * @var array|mixed
+     * The cache key of the current request.
      */
-    protected $cachedResponse;
+    protected ?string $cacheKey = null;
 
     /**
-     * Rache constructor.
+     * The name of the route the current request resolved to.
      */
-    public function __construct()
-    {
-        $this->tagSets = config('rache.tags');
-        $this->setRequest(request());
+    protected ?string $routeName = null;
+
+    /**
+     * The lifetime override supplied through a `ttl_` middleware parameter.
+     */
+    protected ?int $lifetime = null;
+
+    /**
+     * Whether the cache has already been queried for the current request.
+     */
+    protected bool $responseFetched = false;
+
+    /**
+     * The response found in the cache for the current request, if any.
+     */
+    protected ?Response $cachedResponse = null;
+
+    /**
+     * Create a new Rache instance.
+     *
+     * @param  RacheConfig  $config  The rache config accessor.
+     * @param  TagRegistry  $registry  The configured tag registry.
+     * @param  CacheKeyGenerator  $keyGenerator  The cache key generator.
+     * @param  CacheTagSet  $tagSet  The cache tag set builder.
+     * @param  ResponseStore  $store  The tagged cache store wrapper.
+     * @param  RouteNameResolver  $routeNames  The route name resolver.
+     */
+    public function __construct(
+        protected readonly RacheConfig $config,
+        protected readonly TagRegistry $registry,
+        protected readonly CacheKeyGenerator $keyGenerator,
+        protected readonly CacheTagSet $tagSet,
+        protected readonly ResponseStore $store,
+        protected readonly RouteNameResolver $routeNames,
+    ) {
+        //
     }
 
     /**
-     * @throws \Exception
+     * Prepare the instance for the given request and middleware parameters.
+     *
+     * @param  Request  $request  The request being handled.
+     * @param  list<string>  $tags  The raw middleware parameters, e.g. `['ttl_10', 'auth']`.
+     * @return $this
+     *
+     * @throws Exceptions\RacheException
      */
-    protected function checkInitialized()
+    public function initialize(Request $request, array $tags = []): static
     {
-        if (!$this->state['initialize']) {
-            throw new \Exception('Rache instance is not initialized.');
-        }
-    }
+        $parameters = $this->normalizeParameters($tags);
 
-    /**
-     * @throws \Exception
-     */
-    public function initialize($request, $tags): Rache
-    {
-        if ($this->state['initialize']) {
+        // A long lived worker (Octane, Swoole, RoadRunner) keeps this singleton
+        // between requests. Re-initialising whenever the request or the tag list
+        // changes stops a second request from inheriting the first one's cache
+        // key, which would serve one visitor's response to another.
+        if ($this->initialized && $this->request === $request && $this->parameters === $parameters) {
             return $this;
         }
 
-        $this->setRequest($request);
+        $this->reset();
 
-        foreach ($tags as $tag) {
-            if (strpos($tag, 'ttl_') === 0) {
-                $this->setLifetimeFromTag($tag);
+        $this->request = $request;
+        $this->parameters = $parameters;
+        $this->registry->setRequest($request);
+
+        foreach ($parameters as $parameter) {
+            if (str_starts_with($parameter, self::TTL_PREFIX)) {
+                $this->setLifetimeFromParameter($parameter);
+
                 continue;
             }
 
-            $this->addTag($tag);
+            $this->tags[$parameter] = $this->registry->data($parameter);
         }
 
-        $this->state['initialize'] = true;
-        $this->cacheKey = $this->serializeTags()->getCacheKey();
+        /** @var array<string, array<array-key, mixed>> $sorted */
+        $sorted = Arr::sortRecursive($this->tags);
+        $this->tags = $sorted;
+
+        foreach ($this->tags as $tag => $data) {
+            $this->serializedTags[$tag] = serialize($data);
+        }
+
+        $this->routeName = $this->routeNames->resolve($request);
+        $this->cacheTags = $this->tagSet->build($this->serializedTags, $this->routeName);
+        $this->cacheKey = $this->keyGenerator->generate($request, $this->serializedTags);
+        $this->initialized = true;
 
         return $this;
     }
 
     /**
-     * Get the cache key.
-     *
-     * @return string
-     */
-    protected function getCacheKey(): string
-    {
-        $tagKeys = '';
-        foreach ($this->tags as $tag => $data) {
-            $tagKeys .= "$tag.$data";
-        }
-
-        $key = implode(':', [
-            $this->request->getHost(),
-            trim($this->request->getPathInfo(), '/'),
-            $tagKeys,
-        ]);
-
-        return config('rache.prefix') . '-' . hash('sha256', $key);
-    }
-
-    /**
-     * Set the lifetime of the response cache from the given tag.
-     *
-     * @param $tag
-     * @throws \Exception
-     */
-    protected function setLifetimeFromTag($tag)
-    {
-        $value = trim($tag, 'ttl_');
-        if (!is_numeric($value)) {
-            throw new \Exception("Non numeric value found for Rache TTL: $value");
-        }
-
-        $this->setLifetime((int)$value);
-    }
-
-    /**
-     * Set the request.
-     *
-     * @param \Illuminate\Http\Request $request
-     */
-    protected function setRequest(Request $request)
-    {
-        $this->request = $request;
-    }
-
-    /**
-     * Set the lifetime of the response cache.
-     *
-     * @param int $seconds
-     */
-    protected function setLifetime(int $seconds)
-    {
-        $this->lifetime = $seconds;
-    }
-
-    /**
-     * @throws \Exception
-     */
-    protected function addTag($tag)
-    {
-        $this->tags[$tag] = $this->getTagData($tag);
-    }
-
-    /**
-     * Get the tag data.
-     *
-     * @throws \Exception
-     */
-    public function getTagData($tag): array
-    {
-        return $this->getTagInstance($tag)->getTagDetails();
-    }
-
-    /**
-     * Get the tag instance.
-     *
-     * @param $tag
-     * @return \Rache\Tags\RacheTagInterface
-     * @throws \Exception
-     */
-    protected function getTagInstance($tag): RacheTagInterface
-    {
-        $this->tagExists($tag);
-
-        $tagInstance = new $this->tagSets[$tag]($this->request);
-        if (!$tagInstance instanceof RacheTagInterface) {
-            throw new \Exception("All the tags should implement the RacheTagInterface. Check the $tag Tag class whether it implements RacheTagInterface.");
-        }
-        return $tagInstance;
-    }
-
-    /**
-     * Serialize the tags and set the cache tags.
+     * Discard all per-request state.
      *
      * @return $this
      */
-    protected function serializeTags(): Rache
+    public function reset(): static
     {
-        $this->tags = Arr::sortRecursive($this->tags);
-        $this->setDefaultCacheTags();
-        $routeName = $this->getCurrentRouteName();
-        foreach ($this->tags as $tag => $data) {
-            $this->tags[$tag] = serialize($data);
-            $this->cacheTags[] = 'rache';
-            $this->cacheTags[] = $tag;
-            $this->cacheTags[] = $this->getCacheTagForData($tag, $this->tags[$tag]);
-            $this->cacheTags[] = $this->getCacheTagForData($tag, null, $routeName);
-            $this->cacheTags[] = $this->getCacheTagForData($tag, $this->tags[$tag], $routeName);
-        }
+        $this->initialized = false;
+        $this->request = null;
+        $this->parameters = [];
+        $this->tags = [];
+        $this->serializedTags = [];
+        $this->cacheTags = [];
+        $this->cacheKey = null;
+        $this->routeName = null;
+        $this->lifetime = null;
+        $this->responseFetched = false;
+        $this->cachedResponse = null;
+        $this->registry->flushResolved();
 
         return $this;
     }
 
     /**
-     * Get the serialized cache tag.
-     *
-     * @param $tag
-     * @param $data
-     * @param null $routeName
-     * @return string
+     * Determine whether the instance has been initialized for a request.
      */
-    protected function getCacheTagForData($tag, $data = null, $routeName = null): string
+    public function isInitialized(): bool
     {
-        $prefix = $routeName ? ':' : '';
-        $suffix = $data ? ':' : '';
-        return "$routeName{$prefix}$tag{$suffix}$data";
+        return $this->initialized;
     }
 
     /**
-     * Set the default cache tags.
+     * Determine whether response caching is enabled in the config.
      */
-    protected function setDefaultCacheTags()
+    public function racheEnabled(): bool
     {
-        $this->cacheTags[] = $this->getCurrentRouteName();
+        return $this->config->enabled();
     }
 
     /**
-     * Get the current route name.
+     * Determine whether responses to the given request may be cached at all.
      *
-     * @return mixed
+     * @param  Request  $request  The request to check.
      */
-    protected function getCurrentRouteName()
+    public function shouldCacheRequest(Request $request): bool
     {
-        $route = $this->request->route();
-        if (is_array($route)) {
-            return $route[1]['as'];
-        }
-
-        return $this->request->route()->getAction('as');
+        return in_array(
+            strtoupper($request->getMethod()),
+            $this->config->cacheableMethods(),
+            true
+        );
     }
 
     /**
-     * Check whether the cached response exists.
+     * Determine whether a cached response exists for the current request.
      *
-     * @return bool
-     * @throws \Exception
+     * @throws Exceptions\RacheException
      */
     public function hasCachedResponse(): bool
     {
-        if (!$this->racheEnabled()) {
+        if (! $this->racheEnabled()) {
             return false;
         }
 
-        return !!$this->getCachedResponse();
+        return $this->getCachedResponse() !== null;
     }
 
     /**
-     * Check whether the rache is enabled in the config.
+     * Get the cached response for the current request, if there is one.
      *
-     * @return mixed
+     * @throws Exceptions\RacheException
      */
-    public function racheEnabled()
+    public function getCachedResponse(): ?Response
     {
-        return config('rache.enabled');
-    }
-
-    /**
-     * Get the cached response.
-     *
-     * @return array|false|mixed
-     * @throws \Exception
-     */
-    public function getCachedResponse()
-    {
-        if (!$this->racheEnabled()) {
-            return false;
+        if (! $this->racheEnabled()) {
+            return null;
         }
 
-        $this->checkInitialized();
-        if (!$this->state['cached_response']) {
-            $this->state['cached_response'] = true;
-            $this->cachedResponse = $this->cache()->tags($this->cacheTags)->get($this->cacheKey);
+        $this->ensureInitialized();
+
+        if (! $this->responseFetched) {
+            $this->responseFetched = true;
+            $this->cachedResponse = $this->store->get($this->cacheTags, (string) $this->cacheKey);
         }
 
         return $this->cachedResponse;
     }
 
     /**
-     * Get the cache lifetime.
+     * Cache the given response for the current request.
      *
-     * @return mixed
-     */
-    protected function getLifetime()
-    {
-        return $this->lifetime ?: config('rache.lifetime');
-    }
-
-    /**
-     * Cache the given response.
+     * @param  Response  $response  The response to store.
      *
-     * @param \Illuminate\Http\Response $response
-     * @return bool
-     * @throws \Exception
+     * @throws Exceptions\RacheException
      */
     public function cacheResponse(Response $response): bool
     {
-        if (!$this->racheEnabled()) {
+        if (! $this->racheEnabled()) {
             return false;
         }
 
-        $this->checkInitialized();
-        $this->cache()->tags($this->cacheTags)->put($this->cacheKey, $response, $this->getLifetime());
-        return true;
+        $this->ensureInitialized();
+
+        return $this->store->put(
+            $this->cacheTags,
+            (string) $this->cacheKey,
+            $this->prepareForCache($response),
+            $this->getLifetime()
+        );
     }
 
     /**
-     * Flush the given tag for the given route and data.
+     * Flush the given tag, optionally narrowed to a route and/or a data set.
      *
-     * @throws \Exception
+     * @param  string  $tag  The rache tag name to flush.
+     * @param  array{route?: string, data?: array<array-key, mixed>}  $options  Optional scoping.
+     *
+     * @throws Exceptions\TagNotRegisteredException
+     * @throws Exceptions\UnsupportedCacheStoreException
      */
-    public function flushTag($tag, $options = [])
+    public function flushTag(string $tag, array $options = []): bool
     {
-        $this->tagExists($tag);
-        $data = isset($options['data']);
-        $route = isset($options['route']);
-        if ($data && $route) {
-            $serializedData = serialize(Arr::sortRecursive($options['data']));
-            $tag = $this->getCacheTagForData($tag, $serializedData, $options['route']);
-        } elseif ($data) {
-            $serializedData = serialize(Arr::sortRecursive($options['data']));
-            $tag = $this->getCacheTagForData($tag, $serializedData);
-        } elseif ($route) {
-            $tag = $this->getCacheTagForData($tag, null, $options['route']);
+        $this->registry->ensureRegistered($tag);
+
+        $route = $options['route'] ?? null;
+        $data = $options['data'] ?? null;
+
+        return $this->store->flush(CacheTagSet::for(
+            $tag,
+            is_array($data) ? serialize(Arr::sortRecursive($data)) : null,
+            is_string($route) && trim($route) !== '' ? trim($route) : null,
+        ));
+    }
+
+    /**
+     * Flush every response this package has cached.
+     *
+     * @throws Exceptions\UnsupportedCacheStoreException
+     */
+    public function flushAll(): bool
+    {
+        return $this->store->flush(CacheTagSet::GLOBAL_TAG);
+    }
+
+    /**
+     * Get the tag data for the given tag name.
+     *
+     * @param  string  $tag  The rache tag name.
+     * @return array<array-key, mixed>
+     *
+     * @throws Exceptions\RacheException
+     */
+    public function getTagData(string $tag): array
+    {
+        return $this->registry->data($tag);
+    }
+
+    /**
+     * Get the tag instance registered under the given name.
+     *
+     * @param  string  $tag  The rache tag name.
+     *
+     * @throws Exceptions\RacheException
+     */
+    public function getTagInstance(string $tag): RacheTagInterface
+    {
+        return $this->registry->instance($tag);
+    }
+
+    /**
+     * Get the cache key of the current request.
+     *
+     * @throws NotInitializedException
+     */
+    public function getCacheKey(): string
+    {
+        $this->ensureInitialized();
+
+        return (string) $this->cacheKey;
+    }
+
+    /**
+     * Get the cache tags the current response is stored against.
+     *
+     * @return list<string>
+     *
+     * @throws NotInitializedException
+     */
+    public function getCacheTags(): array
+    {
+        $this->ensureInitialized();
+
+        return $this->cacheTags;
+    }
+
+    /**
+     * Get the name of the route the current request resolved to.
+     *
+     * @throws NotInitializedException
+     */
+    public function getRouteName(): string
+    {
+        $this->ensureInitialized();
+
+        return (string) $this->routeName;
+    }
+
+    /**
+     * Get the lifetime, in seconds, that the current response will be cached for.
+     */
+    public function getLifetime(): int
+    {
+        return $this->lifetime ?? $this->config->lifetime();
+    }
+
+    /**
+     * Normalise the raw middleware parameters into a clean, unique list.
+     *
+     * Route definitions are written by hand, so `rache:auth, page` (with a
+     * space) and duplicated parameters are both common. Trimming and
+     * de-duplicating here keeps a stray space from being reported as an
+     * unregistered tag.
+     *
+     * @param  array<array-key, mixed>  $parameters  The raw middleware parameters.
+     * @return list<string>
+     */
+    protected function normalizeParameters(array $parameters): array
+    {
+        $normalized = [];
+
+        foreach ($parameters as $parameter) {
+            if (! is_string($parameter) && ! is_numeric($parameter)) {
+                continue;
+            }
+
+            $parameter = trim((string) $parameter);
+
+            if ($parameter !== '' && ! in_array($parameter, $normalized, true)) {
+                $normalized[] = $parameter;
+            }
         }
 
-        $this->cache()->tags($tag)->flush();
+        return $normalized;
     }
 
     /**
-     * Flush all the tag.
-     */
-    public function flushAll()
-    {
-        $this->cache()->tags('rache')->flush();
-    }
-
-    /**
-     * @param $tag
-     * @throws \Exception
-     */
-    protected function tagExists($tag): void
-    {
-        if (!array_key_exists($tag, $this->tagSets)) {
-            throw new \Exception("Tag name is not declared in the rache config for $tag");
-        }
-    }
-
-    /**
-     * Get the cache for the configured store.
+     * Parse and apply the lifetime carried by a `ttl_` middleware parameter.
      *
-     * @return \Illuminate\Contracts\Cache\Repository
+     * @param  string  $parameter  The raw parameter, e.g. `ttl_600`.
+     *
+     * @throws InvalidTtlException
      */
-    protected function cache(): Repository
+    protected function setLifetimeFromParameter(string $parameter): void
     {
-        return Cache::store(config('rache.cache_store'));
+        // substr(), not trim(): trim() with a character list strips every
+        // occurrence of t, l and _ from both ends, so `ttl_late` used to be
+        // reported as the value "a".
+        $value = substr($parameter, strlen(self::TTL_PREFIX));
+
+        if (! is_numeric($value)) {
+            throw InvalidTtlException::notNumeric($value);
+        }
+
+        $seconds = (int) $value;
+
+        if ($seconds <= 0) {
+            throw InvalidTtlException::notPositive($seconds);
+        }
+
+        $this->lifetime = $seconds;
+    }
+
+    /**
+     * Make a copy of the response that is safe to share between visitors.
+     *
+     * @param  Response  $response  The response about to be cached.
+     */
+    protected function prepareForCache(Response $response): Response
+    {
+        $cacheable = $this->toStorableResponse($response);
+
+        if ($this->config->stripSetCookieHeader()) {
+            // Symfony's Response::__clone() clones the header bag, so removing
+            // the header here cannot affect the response still being sent to
+            // the visitor that generated it.
+            $cacheable->headers->remove('Set-Cookie');
+        }
+
+        return $cacheable;
+    }
+
+    /**
+     * Reduce a response to a form that survives serialization.
+     *
+     * @param  Response  $response  The response about to be cached.
+     */
+    protected function toStorableResponse(Response $response): Response
+    {
+        // Illuminate\Http\RedirectResponse holds references to the request and
+        // the session, both of which carry closures, so serializing it throws
+        // "Serialization of 'Closure' is not allowed" on every store that
+        // serializes -- which is every usable store. Redirects were documented
+        // as cacheable but blew up with a 500 on the write. Flattening to a
+        // plain response keeps the status, headers and body without the
+        // unserializable object graph.
+        if ($response instanceof RedirectResponse) {
+            $flattened = new HttpResponse(
+                $response->getContent() === false ? '' : $response->getContent(),
+                $response->getStatusCode(),
+                $response->headers->all()
+            );
+
+            $flattened->setProtocolVersion($response->getProtocolVersion());
+
+            return $flattened;
+        }
+
+        return clone $response;
+    }
+
+    /**
+     * Assert that `initialize()` has been called.
+     *
+     * @throws NotInitializedException
+     */
+    protected function ensureInitialized(): void
+    {
+        if (! $this->initialized) {
+            throw NotInitializedException::make();
+        }
     }
 }

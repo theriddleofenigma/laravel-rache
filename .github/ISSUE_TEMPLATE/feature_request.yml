@@ -1,0 +1,38 @@
+name: 💡 Feature request
+description: Suggest a new capability or an improvement.
+labels: ['enhancement']
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **Never paste credentials here.** Redact `.env` contents, cache DSNs,
+        tokens, cookies and real user data before you submit.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the situation, not the solution. What does the package make hard today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would the API look like? Sketch the config or the route definition.
+      render: php
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered
+      description: Including a custom rache tag, which already covers a lot of cases.
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request for this.
