@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.0.0]
+## [2.0.0] - 2026-07-25
 
 A full renovation: modern framework support, a restructured source tree, a real
 test suite, and fixes for a number of bugs that were silently affecting
