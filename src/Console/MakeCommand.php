@@ -1,112 +1,141 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Rache\Console;
 
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 
+/**
+ * Generates a new rache tag class in the application.
+ */
 class MakeCommand extends FileManipulationCommand
 {
-    protected $signature = 'rache:make-tag {name} {--force}';
-
-    protected $description = 'Create a new Rache tag.';
-
-    public function handle()
-    {
-        $showWelcomeMessage = $this->isFirstTimeMakingAComponent();
-
-        $class = $this->createClass();
-        $name = Str::snake($this->getNameInput());
-
-        if ($class) {
-            $this->line("<options=bold,reverse;fg=green> RACHE TAG CREATED </> 🤙 \n");
-            $this->line("<options=bold;fg=yellow> Make sure to add this tag detail in the rache config. </>");
-            $this->line("<options=bold><fg=cyan> REFERENCE </> '$name' => <fg=magenta>{$this->getTagNamespace()}{$this->getNameInput()}::class</></>");
-
-            if ($showWelcomeMessage && !app()->environment('testing')) {
-                $this->writeWelcomeMessage();
-            }
-        }
-    }
-
-    protected function createClass()
-    {
-        $class = $this->getNameInput();
-        $filepath = $this->getPath($this->getTagNamespace() . $class);
-
-
-        // Next, We will check to see if the class already exists. If it does, we don't want
-        // to create the class and overwrite the user's code. So, we will bail out so the
-        // code is untouched. Otherwise, we will continue generating this class' files.
-        if (!$this->option('force') && File::exists($filepath)) {
-            $this->line("<options=bold,reverse;fg=red> BEEP-BEEP! </> 😳 \n");
-            $this->line('<fg=red;options=bold>Class already exists:</> ' . $class);
-            return false;
-        }
-
-        $racheTagFolder = implode(DIRECTORY_SEPARATOR, [$this->laravel['path'], 'Rache', 'Tags']);
-        $this->makeDirectory($racheTagFolder);
-
-        $content = str_replace(['DummyClass', '{{ class }}', '{{class}}'], $class,
-            File::get(__DIR__ . '/stubs/rache-tag.stub'));
-        File::put($filepath, $content);
-
-        return $filepath;
-    }
+    /**
+     * The name and signature of the console command.
+     *
+     * @var string
+     */
+    protected $signature = 'rache:make-tag {name : The name of the rache tag} {--force : Overwrite the tag if it already exists}';
 
     /**
-     * Build the directory for the class if necessary.
+     * The console command description.
      *
-     * @param string $path
-     * @return string
+     * @var string
      */
-    protected function makeDirectory(string $path): string
+    protected $description = 'Create a new Rache tag.';
+
+    /**
+     * Execute the console command.
+     */
+    public function handle(): int
     {
-        if (!File::isDirectory($path)) {
-            File::makeDirectory($path, 0777, true, true);
+        $class = $this->getNameInput();
+
+        if (! $this->isValidClassName($class)) {
+            $this->line("<options=bold,reverse;fg=red> BEEP-BEEP! </> 😳 \n");
+            $this->line('<fg=red;options=bold>Invalid tag name:</> '.$class);
+            $this->line('A rache tag name must be a valid PHP class name, for example <fg=yellow;options=bold>Search</>.');
+
+            return self::FAILURE;
         }
 
-        return $path;
+        $showWelcomeMessage = $this->isFirstTimeMakingAComponent();
+        $path = $this->getPath($class);
+
+        // Bail before writing so an existing tag never has its code replaced.
+        if (! $this->option('force') && $this->files->exists($path)) {
+            $this->line("<options=bold,reverse;fg=red> BEEP-BEEP! </> 😳 \n");
+            $this->line('<fg=red;options=bold>Class already exists:</> '.$class);
+            $this->line('Re-run with <fg=yellow;options=bold>--force</> to overwrite it.');
+
+            // See PublishCommand: a false return becomes exit code 0.
+            return self::FAILURE;
+        }
+
+        $this->files->ensureDirectoryExists(dirname($path));
+        $this->files->put($path, $this->buildClass($class));
+
+        $reference = Str::snake($class);
+
+        $this->line("<options=bold,reverse;fg=green> RACHE TAG CREATED </> 🤙 \n");
+        $this->line('<options=bold;fg=yellow> Make sure to add this tag detail in the rache config. </>');
+        $this->line("<options=bold><fg=cyan> REFERENCE </> '$reference' => <fg=magenta>\\{$this->getTagNamespace()}\\{$class}::class</></>");
+
+        if ($showWelcomeMessage && ! $this->laravel->environment('testing')) {
+            $this->writeWelcomeMessage();
+        }
+
+        return self::SUCCESS;
     }
 
     /**
      * Get the desired class name from the input.
-     *
-     * @return string
      */
     protected function getNameInput(): string
     {
-        return trim($this->argument('name'));
+        $name = $this->argument('name');
+
+        return trim(is_string($name) ? $name : '');
     }
 
     /**
-     * Get the destination class path.
+     * Determine whether the given name is usable as a PHP class name.
      *
-     * @param string $name
-     * @return string
+     * @param  string  $name  The raw tag name supplied on the command line.
      */
-    protected function getPath(string $name): string
+    protected function isValidClassName(string $name): bool
     {
-        $name = Str::replaceFirst($this->rootNamespace(), '', $name);
-
-        return $this->laravel['path'] . '/' . str_replace('\\', '/', $name) . '.php';
+        return preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name) === 1;
     }
 
     /**
-     * Get the root namespace for the class.
+     * Get the absolute path the generated tag is written to.
      *
-     * @return string
+     * @param  string  $class  The tag class name.
      */
-    protected function rootNamespace(): string
+    protected function getPath(string $class): string
     {
-        return $this->laravel->getNamespace();
+        return $this->tagDirectory().DIRECTORY_SEPARATOR.$class.'.php';
     }
 
     /**
-     * @return string
+     * Get the namespace generated tags are placed in.
+     *
+     * Derived from the application's root namespace rather than hardcoded to
+     * `App\`, so applications that renamed their namespace get a class that
+     * actually autoloads.
      */
     protected function getTagNamespace(): string
     {
-        return '\\App\\Rache\\Tags\\';
+        return $this->rootNamespace().'Rache\\Tags';
+    }
+
+    /**
+     * Get the application's root namespace, with a trailing separator.
+     */
+    protected function rootNamespace(): string
+    {
+        if (method_exists($this->laravel, 'getNamespace')) {
+            return $this->laravel->getNamespace();
+        }
+
+        return 'App\\';
+    }
+
+    /**
+     * Build the contents of the generated tag class.
+     *
+     * @param  string  $class  The tag class name.
+     */
+    protected function buildClass(string $class): string
+    {
+        $stub = $this->files->get(__DIR__.'/stubs/rache-tag.stub');
+
+        return str_replace(
+            ['{{ namespace }}', '{{namespace}}', 'DummyClass', '{{ class }}', '{{class}}'],
+            [$this->getTagNamespace(), $this->getTagNamespace(), $class, $class, $class],
+            $stub
+        );
     }
 }

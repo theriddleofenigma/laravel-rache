@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: 🔐 Report a security vulnerability
+    url: https://github.com/theriddleofenigma/laravel-rache/security/advisories/new
+    about: Report privately. Never open a public issue for a security problem, and never include credentials.
+  - name: 📖 Troubleshooting and support
+    url: https://github.com/theriddleofenigma/laravel-rache/blob/main/SUPPORT.md
+    about: Common causes for "nothing is being cached" and where to ask for help.
